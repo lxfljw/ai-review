@@ -22,7 +22,8 @@ jobs:
       - name: Get changed files
         id: changes
         run: |
-          echo "files=$(git diff --name-only origin/${{ github.base_ref }} HEAD)" >> $GITHUB_OUTPUT
+          BASE_REF="${{ github.base_ref || 'main' }}"
+          echo "files=$(git diff --name-only origin/$BASE_REF HEAD)" >> $GITHUB_OUTPUT
 
       - name: Run code analysis
         id: analysis

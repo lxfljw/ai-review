@@ -22,7 +22,8 @@ jobs:
       - name: Get PR diff
         id: diff
         run: |
-          DIFF=$(git diff origin/${{ github.base_ref }}...HEAD --unified=5)
+          BASE_REF="${{ github.base_ref || 'main' }}"
+          DIFF=$(git diff origin/$BASE_REF...HEAD --unified=5)
           DIFF="${DIFF//'%'/%25}"
           DIFF="${DIFF//$'\n'/%0A}"
           DIFF="${DIFF//$'\r'/%0D}"
@@ -35,7 +36,8 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          DIFF=$(git diff origin/${{ github.base_ref }}...HEAD)
+          BASE_REF="${{ github.base_ref || 'main' }}"
+          DIFF=$(git diff origin/$BASE_REF...HEAD)
           
           RESPONSE=$(curl -s https://api.deepseek.com/chat/completions \
             -H "Content-Type: application/json" \
