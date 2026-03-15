@@ -1,0 +1,93 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changes
+        run: |
+          echo "files=$(git diff --name-only origin/${{ github.base_ref }} HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Run code analysis
+        id: analysis
+        run: |
+          FILES="${{ steps.changes.outputs.files }}"
+          echo "Changed files: $FILES"
+          
+          REVIEW_COMMENTS=""
+          
+          for file in $FILES; do
+            if [ -f "$file" ]; then
+              echo "Analyzing: $file"
+              
+              # Check for common issues
+              EXTENSION="${file##*.}"
+              
+              # Basic checks
+              if [ "$EXTENSION" = "js" ] || [ "$EXTENSION" = "ts" ]; then
+                # Check for console.log
+                if grep -q "console.log" "$file"; then
+                  REVIEW_COMMENTS+="📝 **$file**: Found `console.log` statements. Consider removing or using proper logging.\n"
+                fi
+                # Check for TODO
+                if grep -q "TODO" "$file"; then
+                  REVIEW_COMMENTS+="💡 **$file**: Found TODO comments that should be addressed.\n"
+                fi
+              fi
+              
+              # Check for sensitive data
+              if grep -iqE "(password|secret|api_key|token|apikey)" "$file"; then
+                REVIEW_COMMENTS+="🔒 **$file**: Potential sensitive data detected. Ensure no secrets are committed.\n"
+              fi
+              
+              # Check for large files
+              SIZE=$(wc -c < "$file")
+              if [ "$SIZE" -gt 100000 ]; then
+                REVIEW_COMMENTS+="⚠️ **$file**: Large file (>100KB). Consider splitting.\n"
+              fi
+            fi
+          done
+          
+          echo "comments=$REVIEW_COMMENTS" >> $GITHUB_OUTPUT
+
+      - name: Add review comment
+        if: steps.analysis.outputs.comments != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comments = `${{ steps.analysis.outputs.comments }}`;
+            if (comments.trim()) {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## 🤖 AI Code Review\n\n${comments}\n\n---\n*Automated review by GitHub Actions*`
+              });
+            }
+
+      - name: Submit review
+        if: steps.analysis.outputs.comments != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.pulls.createReview({
+              pull_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              event: 'COMMENT',
+              body: `## 🤖 AI Code Review Summary\n\nAutomated review completed. Please check the comments for suggested improvements.`
+            });
