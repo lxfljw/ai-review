@@ -69,10 +69,13 @@ jobs:
           REVIEW=$(echo "$BODY" | jq -r '.choices[0].message.content')
           echo "$REVIEW" > review.md
           
+          COMMENT=$(jq -n --arg review "$REVIEW" \
+            '{"body": ("## 🤖 AI Code Review\n\n" + $review + "\n\n---\n*Powered by DeepSeek V3*")}')
+          
           curl -X POST https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d "{\"body\": \"## 🤖 AI Code Review\n\n$REVIEW\n\n---\n*Powered by DeepSeek V3*\"}"
+            -d "$COMMENT"
 
       - name: No API Key warning
         if: "!env.DEEPSEEK_API_KEY"
