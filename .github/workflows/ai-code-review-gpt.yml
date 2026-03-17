@@ -39,7 +39,7 @@ jobs:
           BASE_REF="${{ github.base_ref || 'main' }}"
           DIFF=$(git diff origin/$BASE_REF...HEAD)
           
-          RESPONSE=$(curl -s https://api.deepseek.com/chat/completions \
+          RESPONSE=$(curl -s -w "\n%{http_code}" https://api.deepseek.com/chat/completions \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
             -d '{
@@ -58,7 +58,18 @@ jobs:
               "max_tokens": 4000
             }')
           
-          REVIEW=$(echo $RESPONSE | jq -r '.choices[0].message.content')
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "HTTP Status Code: $HTTP_CODE"
+          echo "API Response: $BODY"
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::warning::DeepSeek API returned error: $BODY"
+            exit 0
+          fi
+          
+          REVIEW=$(echo "$BODY" | jq -r '.choices[0].message.content')
           echo "$REVIEW" > review.md
           
           # Post comment
