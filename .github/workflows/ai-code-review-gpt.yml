@@ -14,36 +14,26 @@ env:
 jobs:
   ai-review:
     runs-on: ubuntu-latest
+    env:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Get PR diff
-        id: diff
-        run: |
-          BASE_REF="${{ github.base_ref || 'main' }}"
-          DIFF=$(git diff origin/$BASE_REF...HEAD --unified=5)
-          DIFF="${DIFF//'%'/%25}"
-          DIFF="${DIFF//$'\n'/%0A}"
-          DIFF="${DIFF//$'\r'/%0D}"
-          echo "diff=$DIFF" >> $GITHUB_OUTPUT
-
       - name: AI Code Review with DeepSeek
-        if: env.DEEPSEEK_API_KEY != ''
         env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           BASE_REF="${{ github.base_ref || 'main' }}"
-          DIFF=$(git diff origin/$BASE_REF...HEAD)
+          DIFF=$(git diff origin/$BASE_REF...HEAD | base64 -w0)
           
           REQUEST_BODY=$(jq -n \
             --arg title "$PR_TITLE" \
             --arg body "$PR_BODY" \
-            --arg diff "$DIFF" \
+            --arg diff "$(echo "$DIFF" | base64 -d)" \
             '{
               model: "deepseek-chat",
               messages: [
@@ -79,13 +69,12 @@ jobs:
           REVIEW=$(echo "$BODY" | jq -r '.choices[0].message.content')
           echo "$REVIEW" > review.md
           
-          # Post comment
           curl -X POST https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d "{\"body\": \"## 🤖 AI Code Review\n\n$REVIEW\n\n---\n*Powered by DeepSeek V3*\"}"
 
       - name: No API Key warning
-        if: env.DEEPSEEK_API_KEY == ''
+        if: "!env.DEEPSEEK_API_KEY"
         run: |
           echo "::warning::DEEPSEEK_API_KEY not set. Please add it as a secret to enable AI review."
