@@ -8,62 +8,78 @@ permissions:
   contents: read
   pull-requests: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   ai-review:
     runs-on: ubuntu-latest
+    env:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Get PR diff
-        id: diff
-        run: |
-          DIFF=$(git diff origin/${{ github.base_ref }}...HEAD --unified=5)
-          DIFF="${DIFF//'%'/%25}"
-          DIFF="${DIFF//$'\n'/%0A}"
-          DIFF="${DIFF//$'\r'/%0D}"
-          echo "diff=$DIFF" >> $GITHUB_OUTPUT
-
       - name: AI Code Review with DeepSeek
-        if: env.DEEPSEEK_API_KEY != ''
         env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          DIFF=$(git diff origin/${{ github.base_ref }}...HEAD)
+          BASE_REF="${{ github.base_ref || 'main' }}"
+          DIFF=$(git diff origin/$BASE_REF...HEAD | base64 -w0)
           
-          RESPONSE=$(curl -s https://api.deepseek.com/chat/completions \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
-            -d '{
-              "model": "deepseek-chat",
-              "messages": [
+          REQUEST_BODY=$(jq -n \
+            --arg title "$PR_TITLE" \
+            --arg body "$PR_BODY" \
+            --arg diff "$(echo "$DIFF" | base64 -d)" \
+            '{
+              model: "deepseek-chat",
+              messages: [
                 {
-                  "role": "system",
-                  "content": "You are a code reviewer. Review the following PR changes and provide constructive feedback. Focus on: bugs, security issues, code quality, performance, and best practices. Output in Chinese."
+                  role: "system",
+                  content": "你是代码审查员。请简洁审查PR变更，只输出关键问题，最多3点，使用中文，使用列表格式。"
                 },
                 {
-                  "role": "user",
-                  "content": "PR Title: '"$PR_TITLE"'\n\nPR Description: '"$PR_BODY"'\n\nGit Diff:\n'"$DIFF"'"
+                  role: "user",
+                  content: "PR Title: \($title)\n\nPR Description: \($body)\n\nGit Diff:\n\($diff)"
                 }
               ],
-              "temperature": 0.3,
-              "max_tokens": 4000
+              temperature: 0.3,
+              max_tokens: 4000
             }')
           
-          REVIEW=$(echo $RESPONSE | jq -r '.choices[0].message.content')
+          RESPONSE=$(curl -s -w "\n%{http_code}" https://api.deepseek.com/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+            -d "$REQUEST_BODY")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "HTTP Status Code: $HTTP_CODE"
+          echo "API Response: $BODY"
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::warning::DeepSeek API returned error: $BODY"
+            exit 0
+          fi
+          
+          REVIEW=$(echo "$BODY" | jq -r '.choices[0].message.content')
           echo "$REVIEW" > review.md
           
-          # Post comment
-          curl -X POST https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+          COMMENT=$(jq -n --arg review "$REVIEW" \
+            '{"body": ("## 🤖 AI Code Review\n\n" + $review + "\n\n---\n*Powered by DeepSeek V3*")}')
+          
+          curl -s -w "\n%{http_code}" -X POST https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d "{\"body\": \"## 🤖 AI Code Review\n\n$REVIEW\n\n---\n*Powered by DeepSeek V3*\"}"
+            -d "$COMMENT"
+          
+          echo "Comment posted successfully"
 
       - name: No API Key warning
-        if: env.DEEPSEEK_API_KEY == ''
+        if: "!env.DEEPSEEK_API_KEY"
         run: |
           echo "::warning::DEEPSEEK_API_KEY not set. Please add it as a secret to enable AI review."

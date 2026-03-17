@@ -8,6 +8,9 @@ permissions:
   contents: read
   pull-requests: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   code-review:
     runs-on: ubuntu-latest
@@ -20,7 +23,11 @@ jobs:
       - name: Get changed files
         id: changes
         run: |
-          echo "files=$(git diff --name-only origin/${{ github.base_ref }} HEAD)" >> $GITHUB_OUTPUT
+          BASE_REF="${{ github.base_ref || 'main' }}"
+          FILES=$(git diff --name-only origin/$BASE_REF HEAD)
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Run code analysis
         id: analysis
@@ -62,7 +69,9 @@ jobs:
             fi
           done
           
-          echo "comments=$REVIEW_COMMENTS" >> $GITHUB_OUTPUT
+          echo "comments<<EOF" >> $GITHUB_OUTPUT
+          echo "$REVIEW_COMMENTS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Add review comment
         if: steps.analysis.outputs.comments != ''
