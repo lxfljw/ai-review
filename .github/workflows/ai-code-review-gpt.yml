@@ -39,7 +39,7 @@ jobs:
               messages: [
                 {
                   role: "system",
-                  content: "You are a code reviewer. Review the following PR changes and provide constructive feedback. Focus on: bugs, security issues, code quality, performance, and best practices. Output in Chinese."
+                  content": "你是代码审查员。请简洁审查PR变更，只输出关键问题，最多3点，使用中文，使用列表格式。"
                 },
                 {
                   role: "user",
