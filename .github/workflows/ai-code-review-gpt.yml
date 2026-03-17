@@ -40,24 +40,30 @@ jobs:
           BASE_REF="${{ github.base_ref || 'main' }}"
           DIFF=$(git diff origin/$BASE_REF...HEAD)
           
+          REQUEST_BODY=$(jq -n \
+            --arg title "$PR_TITLE" \
+            --arg body "$PR_BODY" \
+            --arg diff "$DIFF" \
+            '{
+              model: "deepseek-chat",
+              messages: [
+                {
+                  role: "system",
+                  content: "You are a code reviewer. Review the following PR changes and provide constructive feedback. Focus on: bugs, security issues, code quality, performance, and best practices. Output in Chinese."
+                },
+                {
+                  role: "user",
+                  content: "PR Title: \($title)\n\nPR Description: \($body)\n\nGit Diff:\n\($diff)"
+                }
+              ],
+              temperature: 0.3,
+              max_tokens: 4000
+            }')
+          
           RESPONSE=$(curl -s -w "\n%{http_code}" https://api.deepseek.com/chat/completions \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
-            -d '{
-              "model": "deepseek-chat",
-              "messages": [
-                {
-                  "role": "system",
-                  "content": "You are a code reviewer. Review the following PR changes and provide constructive feedback. Focus on: bugs, security issues, code quality, performance, and best practices. Output in Chinese."
-                },
-                {
-                  "role": "user",
-                  "content": "PR Title: '"$PR_TITLE"'\n\nPR Description: '"$PR_BODY"'\n\nGit Diff:\n'"$DIFF"'"
-                }
-              ],
-              "temperature": 0.3,
-              "max_tokens": 4000
-            }')
+            -d "$REQUEST_BODY")
           
           HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
           BODY=$(echo "$RESPONSE" | sed '$d')
